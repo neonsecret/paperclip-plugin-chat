@@ -1,0 +1,29 @@
+{
+  "name": "@paperclipai/plugin-chat-ui",
+  "version": "0.1.0",
+  "description": "Chat copilot plugin for Paperclip — interactive AI assistant for managing tasks, agents, and workspaces",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paperclipai/plugin-chat-ui.git"
+  },
+  "keywords": [
+    "paperclip",
+    "plugin",
+    "chat",
+    "ai",
+    "copilot"
+  ],
+  "paperclipPlugin": {
+    "manifest": "./plugin.json",
+    "server": "./server/index.ts",
+    "ui": "./ui/index.tsx"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "@tanstack/react-query": ">=5",
+    "react-markdown": ">=9",
+    "remark-gfm": ">=4",
+    "lucide-react": ">=0.300"
+  }
+}
