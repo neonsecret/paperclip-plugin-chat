@@ -1,5 +1,5 @@
 {
-  "name": "@paperclipai/plugin-chat-ui",
+  "name": "@webprismdevin/paperclip-plugin-chat",
   "version": "0.1.0",
   "description": "Chat copilot plugin for Paperclip — interactive AI assistant for managing tasks, agents, and workspaces",
   "license": "MIT",

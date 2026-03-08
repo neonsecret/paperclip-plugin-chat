@@ -1,6 +1,6 @@
 {
   "name": "chat-ui",
-  "id": "@paperclipai/plugin-chat-ui",
+  "id": "@webprismdevin/paperclip-plugin-chat",
   "displayName": "Chat",
   "description": "Interactive AI copilot for managing tasks, agents, and workspaces through natural conversation",
   "version": "0.1.0",
