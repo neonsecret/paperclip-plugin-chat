@@ -1,99 +1,133 @@
-# Paperclip Chat
+# @paperclipai/plugin-chat
 
-Interactive AI copilot for Paperclip — manage tasks, coordinate agents, and plan work through natural conversation.
+Multi-adapter AI chat plugin for Paperclip. Provides a conversational interface to Paperclip agents with thread management, slash commands, and real-time streaming.
+
+## How It Works
+
+The plugin creates a chat UI inside the Paperclip plugin page slot. When a user sends a message, the plugin:
+
+1. Creates a thread (persisted in plugin state)
+2. Finds a compatible agent via `ctx.agents.list()` (prefers "Chat Assistant", falls back to role "general")
+3. Creates or resumes an agent session via `ctx.agents.sessions`
+4. Streams the agent's response back to the UI
+
+All LLM access goes through Paperclip's agent session system. The plugin does not talk to models directly — it talks to agents that talk to models. See [Plugin vs Core Analysis](docs/plugin-vs-core-chat.md) for the implications of this architecture.
+
+## Prerequisites
+
+- A running Paperclip instance
+- At least one agent with `adapterType: "claude_local"` (or another supported adapter)
+- The plugin installed and enabled in **Settings > Plugins**
+
+## Build
+
+```bash
+npm run build
+```
+
+Produces `dist/worker.js` (server-side) and `dist/ui/index.js` (browser bundle).
+
+### Docker deployment
+
+```bash
+docker cp dist/ui/index.js paperclip-plugin-chat-server-1:/app/packages/plugins/plugin-chat/dist/ui/index.js
+```
+
+Hard refresh the browser after deploying — the server caches bundles with ETags.
 
 ## Features
 
-- **Threaded conversations** with full history
-- **Claude CLI integration** with real-time streaming responses
-- **Agent handoff** — @-mention agents to create and assign tasks (supports sub-tasks)
-- **Slash commands** — `/tasks`, `/agents`, `/dashboard`, `/costs`, `/plan`, and more
-- **Model switching** — Sonnet 4.5, Opus 4.6, Haiku 4.5
-- **Skills system** — drop `.md` files in `server/skills/` to extend Claude's capabilities
-- **Stop button** — kill a running response mid-stream
+### Chat UI
+- Welcome screen with quick action chips (check issues, review goals, plan work, agent status)
+- Threaded conversations with sidebar navigation
+- Rich markdown rendering (tables, code blocks, lists, links, blockquotes)
+- Collapsible tool usage display ("Used 3 tools Bash x3")
+- Auto-generated thread titles from first message
+- Inline thread rename (double-click) and delete (with confirmation)
 
-## Requirements
+### Slash Commands
+Type `/` in the input to access built-in commands:
 
-- A running [Paperclip](https://github.com/paperclipai/paperclip) instance
-- [Claude CLI](https://docs.anthropic.com/en/docs/claude-cli) installed and authenticated
-- PostgreSQL (used by Paperclip)
+| Command | Action |
+|---------|--------|
+| `/tasks` | List active tasks |
+| `/dashboard` | Workspace dashboard |
+| `/agents` | Agent status overview |
+| `/create` | Create a new task |
+| `/projects` | List projects |
+| `/costs` | Cost breakdown |
+| `/activity` | Recent activity |
+| `/blocked` | Blocked tasks |
+| `/plan` | Plan and break down work |
+| `/handoff` | Hand off work to an agent |
 
-## Install
+### Streaming
+The plugin supports real-time streaming via SSE (`ctx.streams`). During agent execution, users see live text output with a blinking cursor, tool activity indicators, and a stop button.
 
-```bash
-cd /path/to/your/paperclip
-git clone https://github.com/webprismdevin/paperclip-plugin-chat.git plugins/chat-ui
-```
+## Configuration
 
-Restart your Paperclip server. On startup, the loader will:
+Navigate to **Settings > Plugins > Chat** (gear icon):
 
-1. Detect `plugins/chat-ui/plugin.json`
-2. Run database migrations (creates `plugin_chat_ui_threads` and `plugin_chat_ui_messages` tables)
-3. Mount server routes at `/api/plugins/chat-ui/`
-4. Register the UI page and sidebar entry
+| Setting | Description |
+|---------|-------------|
+| Default Adapter | Adapter type for new threads (`claude_local`, `codex_local`, `opencode_local`) |
+| System Prompt Override | Custom text appended to chat sessions |
 
-Navigate to **Chat** in the sidebar.
+## Plugin Capabilities
 
-### Using the install script
+| Capability | Purpose |
+|-----------|---------|
+| `ui.page.register` | Full chat page at `/:prefix/plugins/:pluginId` |
+| `ui.sidebar.register` | Sidebar entry point |
+| `agent.sessions.*` | Create and message agent sessions |
+| `agents.read` | Discover available agents/adapters |
+| `plugin.state.*` | Thread and message persistence |
+| `activity.log.write` | Activity logging |
 
-```bash
-# Install
-./install.sh install /path/to/paperclip
-
-# Uninstall (removes files, keeps DB tables)
-./install.sh uninstall /path/to/paperclip
-```
-
-## Update
-
-```bash
-cd /path/to/your/paperclip/plugins/chat-ui
-git pull
-```
-
-Restart the server. New migrations (if any) run automatically.
-
-## Uninstall
-
-```bash
-rm -rf /path/to/your/paperclip/plugins/chat-ui
-```
-
-To also remove data, run against your database:
-
-```sql
-DROP TABLE IF EXISTS plugin_chat_ui_messages CASCADE;
-DROP TABLE IF EXISTS plugin_chat_ui_threads CASCADE;
-DELETE FROM plugin_migrations WHERE plugin_name = 'chat-ui';
-```
-
-## Project Structure
+## Architecture
 
 ```
-├── plugin.json              # Manifest (name, nav, capabilities)
-├── server/
-│   ├── index.ts             # API routes (threads, messages, chat streaming)
-│   ├── system-prompt.md     # Base system prompt for Claude
-│   └── skills/              # Skill files loaded into Claude's context
-│       └── handoff.md       # Agent handoff skill
-├── ui/
-│   └── index.tsx            # React UI (page + sidebar)
-└── db/
-    └── migrations/          # SQL migrations (run automatically)
+Browser                          Server
+-------                          ------
+ChatPage (React)
+  |
+  |-- usePluginData("threads")    --> Worker: getData("threads")
+  |-- usePluginData("messages")   --> Worker: getData("messages")
+  |-- usePluginAction("sendMessage") --> Worker: sendMessage action
+  |                                      |
+  |                                      |--> ctx.agents.sessions.create()
+  |                                      |--> ctx.agents.sessions.sendMessage()
+  |                                      |      |
+  |                                      |      +--> Agent adapter --> CLI process
+  |                                      |      |
+  |                                      |      +--> onEvent callbacks
+  |                                      |
+  |                                      |--> ctx.streams.emit() (SSE)
+  |
+  |-- usePluginStream("chat:threadId") <-- SSE events (text, thinking, tool, done)
 ```
 
-## Adding Skills
+## Known Limitations
 
-Drop any `.md` file into `server/skills/` to extend what Claude knows how to do. Skills are automatically appended to the system prompt on every chat request.
+- **No direct LLM access** — requires a pre-configured agent; can't create agents or select models
+- **Agent sessions are task-oriented** — no way to distinguish "answer this question" from "execute this task"
+- **No design system** — UI is built with inline styles and CSS variable fallbacks
+- **No deep linking** — thread state is lost on page refresh
+- **No toast/dialog** — errors go to console only
+- **Host page chrome** — breadcrumbs and back button can't be hidden
 
-Example: `server/skills/my-workflow.md`
+For the full analysis, see [Plugin vs Core: Chat Feature Analysis](docs/plugin-vs-core-chat.md).
 
-```markdown
-## Skill: My Custom Workflow
+## Testing
 
-When the user asks to [trigger], do [action] by calling [API endpoint].
-```
+See the [Testing Guide](docs/plugin-chat-testing-guide.md) for setup instructions, a full test checklist, and troubleshooting steps.
 
-## Architecture Note
+## Related Docs
 
-This integrates directly with Paperclip's existing extension loader — it is **not** a standalone plugin system. It uses Paperclip's database, authentication (JWT), and Express router. See [docs/SPEC_GAP_ANALYSIS.md](docs/SPEC_GAP_ANALYSIS.md) for details on how this relates to Paperclip's upcoming formal plugin specification.
+| Document | Description |
+|----------|-------------|
+| [Plugin vs Core Analysis](docs/plugin-vs-core-chat.md) | Why chat as a plugin has fundamental limitations |
+| [Testing Guide](docs/plugin-chat-testing-guide.md) | Test checklist and setup for testers |
+| [Core Integration Spec](docs/chat-core-integration.md) | Recommendation for building chat as a core page |
+| [Streaming Implementation](docs/plugin-chat-streaming-implementation.md) | SSE streaming architecture notes |
+| [Stream Bus Gap](docs/stream-bus-wiring-gap.md) | Stream bus wiring analysis |
