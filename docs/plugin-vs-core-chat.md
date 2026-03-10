@@ -30,6 +30,36 @@ A core chat page would have direct adapter access — pick a model, provide a sy
 
 ---
 
+## Plugin Security Model
+
+The plugin system implements defense-in-depth with multiple overlapping enforcement layers. This is the correct security posture for third-party extensions — and it's precisely why chat doesn't fit as a plugin.
+
+### What the sandbox enforces
+
+| Layer | Mechanism | Enforcement point |
+|-------|-----------|-------------------|
+| Process isolation | Each plugin runs in a dedicated child process via `fork()` | `plugin-worker-manager.ts` |
+| Capability gating | Every worker→host RPC call checked against 44 operation-to-capability mappings | `host-client-factory.ts`, `plugin-capability-validator.ts` |
+| State isolation | `pluginId` is part of every state query — one plugin cannot read another's data | `plugin-state-store.ts` |
+| Session ownership | Agent sessions scoped by `taskKey` pattern (`plugin:{pluginKey}:session:{uuid}`) | `plugin-host-services.ts` |
+| Company boundaries | Every entity access verified against `companyId` before returning data | `plugin-host-services.ts` (`inCompany()`) |
+| Module sandboxing | Allow-listed imports, relative imports constrained to plugin root, no access to host globals | `plugin-runtime-sandbox.ts` |
+| Network protection | Protocol whitelist (http/https only), private IP blocking (RFC 1918, loopback, link-local, AWS metadata), DNS rebinding prevention | `plugin-host-services.ts` |
+| Environment isolation | Minimal env vars (`PATH`, `NODE_PATH`, `NODE_ENV`, `TZ`, `PAPERCLIP_PLUGIN_ID`) — no `DATABASE_URL` or secrets | `plugin-worker-manager.ts` |
+| Resource limits | 5-minute hard timeout per RPC call, crash recovery with exponential backoff (max 10 consecutive crashes) | `plugin-worker-manager.ts` |
+
+A capability violation returns a `CapabilityDeniedError` (403). A company access violation returns "entity not found." A module import outside the allow-list is rejected at load time. These boundaries are enforced at every level before reaching data services.
+
+### Why this matters for chat
+
+This sandbox is well-designed for what plugins should be: **additive extensions that operate within defined boundaries.** A Linear sync plugin reads issues and writes state. A Slack notification plugin subscribes to events and makes outbound HTTP requests. These fit naturally within the capability model.
+
+Chat needs to operate outside these boundaries. The capabilities required to build a proper chat experience — direct LLM access, process execution, agent creation, model selection — each punch a hole in the sandbox. Widening the plugin security model to accommodate chat would weaken it for every other plugin. The alternative (keeping the sandbox tight) means chat will always be a constrained, indirect experience mediated through agent sessions the plugin doesn't control.
+
+**The plugin sandbox is the right scope for plugins. Chat needs a wider scope. The answer is to build chat where that wider scope is natural (core), not to widen the sandbox.**
+
+---
+
 ## Plugin System Capabilities (What Plugins CAN Do)
 
 The plugin SDK (`PluginContext`) exposes these APIs to worker code:
@@ -224,6 +254,9 @@ These are the workarounds we implemented in the plugin to compensate for missing
 | Conversation vs task | Agent sessions (task-oriented) | Lightweight chat API |
 | Page chrome | Host-controlled breadcrumbs + back button | Full layout control |
 | Keyboard shortcuts | Limited to textarea | Global shortcut registration |
+| Security boundary | Sandboxed: process isolation, capability-gated RPC, state partitioning | Trusted: full server access, direct DB, no capability checks |
+| LLM cost control | Mediated through agent sessions (host controls spending) | Direct adapter access (must implement own cost controls) |
+| Data access scope | Only declared capabilities, only enabled companies | Full database access, all companies |
 
 ---
 
@@ -251,7 +284,16 @@ Ordered by impact on the plugin's featureset:
 11. **Agent creation API** — `ctx.agents.create()` so plugins can provision their own agents. Without this, plugins depend on manually pre-configured agents.
 12. **Process execution API** — `ctx.exec()` for controlled CLI access. Without this, plugins can't use external LLM tools (Claude CLI, Codex, OpenCode).
 
-Items 9-12 fundamentally change the plugin security model. They're not incremental fixes — they require design decisions about sandboxing, resource limits, and trust boundaries.
+Items 9-12 fundamentally change the plugin security model. They're not incremental fixes — each one breaks a specific sandbox boundary:
+
+| Item | Sandbox boundary it breaks |
+|------|---------------------------|
+| `ctx.chat.stream()` | Bypasses agent capability system — plugin gets raw LLM access with no mediation. Host loses visibility into what prompts are being sent, what models are being used, and what costs are being incurred. |
+| Model discovery | Exposes infrastructure configuration (which models are deployed, which API keys are active) to plugin code running in an isolated process. |
+| `ctx.agents.create()` | Plugin creates autonomous entities with their own permissions, tools, and system prompts. An agent created by a plugin inherits the host's execution environment — it can run tools, spawn processes, and access resources the plugin itself cannot. |
+| `ctx.exec()` | Plugin escapes its process sandbox entirely. A plugin with shell access can read the filesystem, access environment variables, reach internal networks, and execute arbitrary code on the host machine. |
+
+The current sandbox is well-enforced: capability-gated RPC, process isolation, state partitioning, SSRF protection, module allow-listing. Adding these capabilities doesn't just expand the plugin's feature surface — it undermines the security properties that make the plugin system safe for third-party code.
 
 ---
 
@@ -265,9 +307,11 @@ Chat is a primary user interaction surface. The plugin system is designed for **
 - The ability to reference and link to entities across the app
 - User identity for personalization
 
+The security model reinforces this conclusion. The plugin sandbox enforces process isolation, capability-gated RPC, state partitioning, and network protection — all appropriate constraints for third-party code. Chat requires capabilities (direct LLM access, process execution, agent creation) that would break these boundaries. Widening the sandbox to accommodate chat weakens it for every plugin. Building chat as core code means it operates in the trusted server context where these capabilities are natural, while the plugin sandbox stays tight for third-party extensions.
+
 **Build chat as a core page.** The plugin implementation proved the UX works and validated the interaction model. Port the patterns (thread CRUD, slash commands, streaming, sidebar) into a core `Chat.tsx` page with full host access.
 
-**Keep the plugin system for what it's good at:** Linear sync, Slack notifications, custom metric dashboards, third-party tool integrations — features that are additive and don't need deep host coupling.
+**Keep the plugin system for what it's good at:** Linear sync, Slack notifications, custom metric dashboards, third-party tool integrations — features that are additive and don't need deep host coupling. The sandbox is an asset for these use cases, not a limitation.
 
 ---
 
