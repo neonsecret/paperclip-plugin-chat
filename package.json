@@ -16,10 +16,8 @@
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@paperclipai/plugin-sdk": "^1.0.0"
-  },
   "devDependencies": {
+    "@paperclipai/plugin-sdk": "file:../../../projects/paperclip/packages/plugins/sdk",
     "@types/node": "^24.6.0",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
@@ -39,5 +37,9 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/webprismdevin/paperclip-plugin-chat.git"
+  },
+  "dependencies": {
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   }
 }

@@ -155,6 +155,155 @@ const mdComponents: Record<string, React.ComponentType<any>> = {
 // ---------------------------------------------------------------------------
 
 const CHAT_STYLES = `
+  /* ── Glassmorphism dark theme ── */
+  .chat-container {
+    background: #000;
+    position: relative;
+  }
+
+  /* Sidebar: floating glassmorphism panel */
+  .chat-sidebar {
+    position: relative;
+    margin: 0.5rem;
+    height: calc(100% - 1rem);
+    border-radius: 1rem;
+    background: rgb(9 9 9 / 73%);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow:
+      0 10px 14px 4px #0000003b,
+      0 10px 19px 1px #00000045,
+      -2px 0px 10px 10px #43434326 inset,
+      0 0px 2px 1px #dedede38 inset;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    overflow: hidden;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .chat-sidebar-header {
+    padding: 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  /* Main messages area */
+  .chat-messages-area {
+    background: transparent;
+  }
+
+  /* Bottom input: glassmorphism bar with gradient fade behind */
+  .chat-input-wrap {
+    position: relative;
+    padding: 0.75rem 2rem;
+    background: transparent;
+  }
+  .chat-input-wrap::before {
+    content: "";
+    position: absolute;
+    inset: -3rem 0 0 0;
+    background: linear-gradient(180deg, transparent 0%, #000 55%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .chat-input-wrap > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* The actual input box */
+  .chat-input-box {
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    background: rgb(19 19 19 / 64%) !important;
+    border-radius: 0.75rem !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    color: rgba(255, 255, 255, 0.85) !important;
+  }
+  .chat-input-box:focus-within {
+    border-color: rgba(99, 102, 241, 0.5) !important;
+    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.15), 0 0 12px rgba(99, 102, 241, 0.08) !important;
+  }
+  .chat-input-box textarea {
+    color: rgba(255, 255, 255, 0.85) !important;
+    caret-color: #6366f1;
+  }
+  .chat-input-box textarea::placeholder {
+    color: rgba(255, 255, 255, 0.25) !important;
+  }
+
+  /* New Chat button */
+  .chat-new-btn {
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    color: rgba(255, 255, 255, 0.65) !important;
+    border-radius: 0.6rem !important;
+    transition: background 150ms, border-color 150ms, color 150ms !important;
+  }
+  .chat-new-btn:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
+    color: rgba(255, 255, 255, 0.9) !important;
+  }
+
+  /* Thread items */
+  .chat-thread-item {
+    color: rgba(255, 255, 255, 0.6);
+    transition: background 120ms;
+  }
+  .chat-thread-item:hover {
+    background: rgba(255, 255, 255, 0.05) !important;
+  }
+  .chat-thread-item.active {
+    background: rgba(99, 102, 241, 0.12) !important;
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  /* Message bubbles */
+  .chat-msg-user {
+    background: rgba(255, 255, 255, 0.07);
+    border-radius: 0.75rem;
+    padding: 0.6rem 0.85rem;
+  }
+  .chat-msg-assistant {
+    background: transparent;
+  }
+
+  /* Quick action chips */
+  .chat-chip {
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    color: rgba(255, 255, 255, 0.5) !important;
+    transition: background 150ms, border-color 150ms, color 150ms !important;
+  }
+  .chat-chip:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
+    color: rgba(255, 255, 255, 0.85) !important;
+  }
+
+  /* Recent thread cards */
+  .chat-recent-card {
+    background: rgba(255, 255, 255, 0.03) !important;
+    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    transition: background 150ms, border-color 150ms !important;
+  }
+  .chat-recent-card:hover {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+  }
+
+  /* Slash command menu */
+  .chat-slash-menu {
+    background: rgb(14 14 14 / 95%) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 0.75rem !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+  }
+
+  /* ── Animations ── */
   .chat-msg-enter {
     animation: chatMsgSlide 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
@@ -166,7 +315,7 @@ const CHAT_STYLES = `
     content: "\\25CA";
     display: inline;
     animation: cursorBlink 800ms steps(2) infinite;
-    color: var(--primary, #2563eb);
+    color: #6366f1;
     font-weight: 400;
     margin-left: 1px;
   }
@@ -181,15 +330,14 @@ const CHAT_STYLES = `
     0%, 100% { opacity: 0.4; }
     50% { opacity: 1; }
   }
-  .chat-input-glow:focus-within {
-    border-color: var(--primary, #2563eb) !important;
-    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.15);
-  }
+
+  /* ── Markdown prose (dark-tuned) ── */
   .chat-markdown h1, .chat-markdown h2, .chat-markdown h3 {
     font-weight: 600;
     margin-top: 1em;
     margin-bottom: 0.4em;
     line-height: 1.3;
+    color: rgba(255, 255, 255, 0.9);
   }
   .chat-markdown h1 { font-size: 1.15em; }
   .chat-markdown h2 { font-size: 1.05em; }
@@ -199,38 +347,40 @@ const CHAT_STYLES = `
   .chat-markdown ul { list-style-type: disc; }
   .chat-markdown ol { list-style-type: decimal; }
   .chat-markdown li { margin: 0.15em 0; }
-  .chat-markdown li::marker { color: rgba(100, 116, 139, 0.6); }
+  .chat-markdown li::marker { color: rgba(255, 255, 255, 0.25); }
   .chat-markdown code {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.88em;
     padding: 0.15em 0.35em;
     border-radius: 3px;
-    background: var(--code-bg, rgba(0, 0, 0, 0.08));
+    background: rgba(255, 255, 255, 0.07);
+    color: rgba(255, 255, 255, 0.8);
   }
   .chat-markdown pre {
     margin: 0.6em 0;
     padding: 0.75em 1em;
-    border-radius: 6px;
+    border-radius: 8px;
     overflow-x: auto;
-    background: var(--code-block-bg, rgba(0, 0, 0, 0.06)) !important;
-    border: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
   .chat-markdown pre code {
     padding: 0;
     background: none;
     font-size: 0.85em;
     line-height: 1.5;
+    color: rgba(255, 255, 255, 0.75);
   }
   .chat-markdown a {
-    color: var(--primary, #2563eb);
+    color: #818cf8;
     text-decoration: underline;
     text-underline-offset: 2px;
   }
   .chat-markdown blockquote {
-    border-left: 2px solid var(--border, rgba(0, 0, 0, 0.15));
+    border-left: 2px solid rgba(255, 255, 255, 0.12);
     padding-left: 0.75em;
     margin: 0.5em 0;
-    color: var(--muted-foreground, rgba(100, 116, 139, 0.8));
+    color: rgba(255, 255, 255, 0.4);
   }
   .chat-markdown table {
     border-collapse: collapse;
@@ -238,21 +388,25 @@ const CHAT_STYLES = `
     font-size: 0.9em;
   }
   .chat-markdown th, .chat-markdown td {
-    border: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+    border: 1px solid rgba(255, 255, 255, 0.08);
     padding: 0.35em 0.6em;
     text-align: left;
   }
   .chat-markdown th {
-    background: var(--accent, rgba(0, 0, 0, 0.06));
+    background: rgba(255, 255, 255, 0.05);
     font-weight: 600;
+    color: rgba(255, 255, 255, 0.8);
   }
+
+  /* ── Scrollbar ── */
   .chat-scroll::-webkit-scrollbar { width: 4px; }
   .chat-scroll::-webkit-scrollbar-track { background: transparent; }
   .chat-scroll::-webkit-scrollbar-thumb {
-    background: rgba(100, 116, 139, 0.3);
+    background: rgba(255, 255, 255, 0.12);
     border-radius: 2px;
   }
-  .chat-scroll::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.5); }
+  .chat-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.22); }
+
   @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
@@ -460,9 +614,9 @@ function MessageRow({ msg }: { msg: ChatMessage }) {
             {formatTime(msg.createdAt)}
           </span>
         </div>
-        <div className="text-sm text-foreground leading-relaxed">
+        <div className="text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.75)" }}>
           {isUser ? (
-            <p className="m-0 whitespace-pre-wrap"><IssueLinkedText text={msg.content} /></p>
+            <p className="chat-msg-user m-0 whitespace-pre-wrap"><IssueLinkedText text={msg.content} /></p>
           ) : hasSegments ? (
             groupSegments(storedSegments).map((group, i) => {
               if (group.type === "text") {
@@ -539,9 +693,9 @@ function StreamingMessage({
           <span className="text-[13px] font-semibold text-foreground">Paperclip</span>
           <span className="text-[11px] text-muted-foreground opacity-60">now</span>
         </div>
-        <div className="text-sm text-foreground leading-relaxed">
+        <div className="text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.75)" }}>
           {!hasAnyContent && isActive && (
-            <div className="flex items-center gap-2 text-muted-foreground">
+            <div className="flex items-center gap-2" style={{ color: "rgba(255,255,255,0.35)" }}>
               <span className="inline-block" style={{ animation: "spin 1s linear infinite" }}>&#x27F3;</span>
               <span className="text-xs">Thinking&#x2026;</span>
             </div>
@@ -694,9 +848,9 @@ function ChatInput({
   return (
     <div className="relative">
       {showSlashMenu && (
-        <div className="absolute bottom-full left-0 right-0 mb-1 bg-card border border-border rounded-lg shadow-lg overflow-hidden z-50">
-          <div className="px-3 py-1.5 border-b border-border">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground opacity-60">
+        <div className="chat-slash-menu absolute bottom-full left-0 right-0 mb-1 overflow-hidden z-50">
+          <div className="px-3 py-1.5 border-b border-[rgba(255,255,255,0.06)]">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-[rgba(255,255,255,0.3)]">
               Commands
             </span>
           </div>
@@ -707,7 +861,7 @@ function ChatInput({
                 ref={i === slashMenuIndex ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
                 onClick={() => selectCommand(cmd)}
                 onMouseEnter={() => setSlashMenuIndex(i)}
-                className={`w-full text-left py-2 px-3 flex items-center gap-2 border-none text-foreground cursor-pointer text-[13px] transition-colors duration-100 ${i === slashMenuIndex ? "bg-accent" : "bg-transparent"}`}
+                className={`w-full text-left py-2 px-3 flex items-center gap-2 border-none cursor-pointer text-[13px] transition-colors duration-100 ${i === slashMenuIndex ? "bg-[rgba(99,102,241,0.15)] text-[rgba(255,255,255,0.9)]" : "bg-transparent text-[rgba(255,255,255,0.6)]"}`}
               >
                 <span className="font-semibold text-primary font-mono text-xs">
                   /{cmd.name}
@@ -722,7 +876,7 @@ function ChatInput({
       )}
 
       {/* Unified input container */}
-      <div className="chat-input-glow flex items-end border border-border rounded-xl bg-background pl-3 pr-1 py-1 transition-all duration-150">
+      <div className="chat-input-box flex items-end pl-3 pr-1 py-1 transition-all duration-150">
         <textarea
           ref={textareaRef}
           value={input}
@@ -756,7 +910,7 @@ function ChatInput({
       </div>
 
       {/* Adapter / model selector row */}
-      <div className="flex items-center gap-1 mt-1.5 text-[11px] text-muted-foreground px-1">
+      <div className="flex items-center gap-1 mt-1.5 text-[11px] text-[rgba(255,255,255,0.3)] px-1">
         {availableAdapters.length > 0 && (
           <span className={selectedThread ? "cursor-default opacity-50" : "cursor-pointer opacity-70"}>
             {availableAdapters.length > 1 && !selectedThread ? (
@@ -1123,21 +1277,21 @@ export function ChatPage(_props: PluginPageProps) {
   return (
     <div
       ref={containerRef}
-      className="flex font-[system-ui,-apple-system,sans-serif]"
+      className="chat-container flex font-[system-ui,-apple-system,sans-serif]"
       style={availableHeight ? { height: availableHeight } : { height: "calc(100vh - 8rem)" }}
     >
       <style dangerouslySetInnerHTML={{ __html: CHAT_STYLES }} />
 
       {/* ── Sidebar ── */}
       <div
-        className={`flex flex-col bg-card transition-all duration-200 overflow-hidden shrink-0 ${sidebarCollapsed ? "" : "border-r border-border"}`}
-        style={{ width: sidebarCollapsed ? 0 : 220 }}
+        className={`chat-sidebar transition-all duration-200 ${sidebarCollapsed ? "opacity-0 pointer-events-none" : ""}`}
+        style={{ width: sidebarCollapsed ? 0 : 220, margin: sidebarCollapsed ? "0" : undefined }}
       >
         {/* New Chat button */}
-        <div className="p-3">
+        <div className="chat-sidebar-header">
           <button
             onClick={() => { setSelectedThreadId(null); setInput(""); }}
-            className="w-full py-2 px-3 rounded-lg border border-border bg-transparent text-foreground cursor-pointer text-[13px] font-medium flex items-center justify-center gap-1.5"
+            className="chat-new-btn w-full py-2 px-3 cursor-pointer text-[13px] font-medium flex items-center justify-center gap-1.5"
           >
             <IconPlus size={14} />
             New Chat
@@ -1150,7 +1304,7 @@ export function ChatPage(_props: PluginPageProps) {
             <div
               key={thread.id}
               onClick={() => setSelectedThreadId(thread.id)}
-              className={`py-2.5 px-3 cursor-pointer flex items-start gap-2.5 transition-colors duration-100 hover:bg-accent ${thread.id === selectedThreadId ? "bg-accent" : "bg-transparent"}`}
+              className={`chat-thread-item py-2.5 px-3 cursor-pointer flex items-start gap-2.5 ${thread.id === selectedThreadId ? "active" : ""}`}
             >
               <span className="shrink-0 mt-0.5 text-muted-foreground opacity-50">
                 <IconChat size={14} />
@@ -1183,12 +1337,13 @@ export function ChatPage(_props: PluginPageProps) {
                       setEditingThreadId(thread.id);
                       setEditingTitle(thread.title || "New Chat");
                     }}
-                    className="text-[13px] overflow-hidden text-ellipsis whitespace-nowrap text-foreground"
+                    className="text-[13px] overflow-hidden text-ellipsis whitespace-nowrap"
+                    style={{ color: "rgba(255,255,255,0.7)" }}
                   >
                     {thread.title || "New Chat"}
                   </div>
                 )}
-                <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
+                <div className="text-[10px] mt-0.5 flex items-center gap-1" style={{ color: "rgba(255,255,255,0.3)" }}>
                   <span>{formatTime(thread.updatedAt)}</span>
                   {thread.status === "running" && (
                     <span
@@ -1218,7 +1373,7 @@ export function ChatPage(_props: PluginPageProps) {
       </div>
 
       {/* ── Main area ── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="chat-messages-area flex-1 flex flex-col min-w-0">
 
         {/* ── Messages area ── */}
         <div className="chat-scroll flex-1 overflow-auto px-8 relative">
@@ -1233,10 +1388,10 @@ export function ChatPage(_props: PluginPageProps) {
           {/* Welcome screen */}
           {!selectedThreadId && (
             <div className="flex flex-col items-center justify-center h-full gap-5 px-6">
-              <div className="text-muted-foreground opacity-30">
+              <div style={{ color: "rgba(255,255,255,0.18)" }}>
                 <IconChat size={32} />
               </div>
-              <h2 className="text-lg font-semibold text-foreground m-0">
+              <h2 className="text-lg font-semibold m-0" style={{ color: "rgba(255,255,255,0.75)" }}>
                 What can I help with?
               </h2>
 
@@ -1254,7 +1409,7 @@ export function ChatPage(_props: PluginPageProps) {
                   <button
                     key={trigger.label}
                     onClick={() => handleQuickAction(trigger.prompt)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border py-2 px-3.5 text-xs text-muted-foreground bg-transparent cursor-pointer transition-all duration-150 hover:text-foreground hover:border-foreground/20 hover:bg-accent"
+                    className="chat-chip inline-flex items-center gap-1.5 rounded-lg py-2 px-3.5 text-xs cursor-pointer"
                   >
                     {trigger.label}
                   </button>
@@ -1282,7 +1437,7 @@ export function ChatPage(_props: PluginPageProps) {
                       <button
                         key={thread.id}
                         onClick={() => setSelectedThreadId(thread.id)}
-                        className="flex items-center gap-3 rounded-lg border border-border py-2.5 px-3 text-left bg-transparent cursor-pointer transition-all duration-150 w-full hover:bg-accent hover:border-foreground/10"
+                        className="chat-recent-card flex items-center gap-3 rounded-lg py-2.5 px-3 text-left cursor-pointer w-full"
                       >
                         <span className="shrink-0 text-muted-foreground opacity-30">
                           <IconChat size={14} />
@@ -1328,7 +1483,7 @@ export function ChatPage(_props: PluginPageProps) {
 
         {/* ── Bottom input (only when in a thread) ── */}
         {selectedThreadId && (
-          <div className="border-t border-border py-3 px-8 bg-card">
+          <div className="chat-input-wrap">
             <ChatInput
               {...inputProps}
               placeholder="Ask Paperclip anything..."
