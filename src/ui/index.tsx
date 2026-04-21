@@ -1047,7 +1047,8 @@ export function ChatPage(_props: PluginPageProps) {
   const updateThreadTitle = usePluginAction("updateThreadTitle");
 
   // SSE stream
-  const streamChannel = selectedThreadId ? `chat:${selectedThreadId}` : "";
+  // Use a sentinel when no thread is selected — empty string causes a 404 on /bridge/stream/
+  const streamChannel = selectedThreadId ? `chat:${selectedThreadId}` : "__no_thread__";
   const { events: streamEvents, connected: streamConnected } = usePluginStream<ChatStreamEvent>(
     streamChannel,
     { companyId: companyId ?? undefined },
