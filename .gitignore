@@ -3,3 +3,11 @@ dist/
 .DS_Store
 *.log
 .worktrees/
+
+# Secrets
+.env
+.env.*
+*.key
+*.pem
+*.secret
+*.credentials

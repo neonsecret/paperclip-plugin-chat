@@ -458,7 +458,11 @@ const plugin = definePlugin({
         const agentContext = allAgents.length > 0
           ? `[Available Agents]\n${allAgents.map(a => `- @${a.name} (Role: ${a.role ?? "general"}, Title: ${a.title ?? "N/A"}, Status: ${a.status ?? "unknown"})`).join("\n")}\n\n`
           : "";
-        enrichedMessage = agentContext + message;
+        // Tell the agent it's in a direct chat so it doesn't get confused by
+        // its Step 0 inbox-check instructions. It can still check inbox after
+        // responding — this just sets context about why it was woken.
+        const chatFraming = `[Chat Session]\nYou were woken via the Paperclip Chat interface. A user is speaking to you directly. Respond to their message first — then you may handle pending inbox items if relevant.\n\n`;
+        enrichedMessage = chatFraming + agentContext + message;
       }
 
       // Open SSE stream channel for this thread so the UI gets real-time events
