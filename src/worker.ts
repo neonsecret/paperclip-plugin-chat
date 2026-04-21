@@ -249,6 +249,21 @@ const plugin = definePlugin({
       return getMessages(ctx, threadId, companyId);
     });
 
+    // ── Data: list agents for the agent selector ────────────────────
+    ctx.data.register("agents", async (params: Record<string, unknown>) => {
+      const companyId = String(params.companyId ?? "");
+      if (!companyId) return [];
+      const agents = await ctx.agents.list({ companyId });
+      return agents
+        .filter((a) => a.status !== "terminated" && a.status !== "paused")
+        .map((a) => ({
+          id: a.id,
+          name: a.name,
+          adapterType: a.adapterType,
+          status: a.status,
+        }));
+    });
+
     // ── Data: list available adapters ───────────────────────────────
     ctx.data.register("adapters", async (params: Record<string, unknown>) => {
       const companyId = params.companyId as string;
@@ -405,13 +420,27 @@ const plugin = definePlugin({
       // Create or resume agent session
       let sessionId = thread.sessionId;
       if (!sessionId) {
-        // Look up a chat-suitable agent by adapter type
-        // Prefer agents with role "assistant" (dedicated chat agents) over task-oriented agents
+        // Resolve which agent to use:
+        // 1. Explicit agentId passed in the action params (user-selected)
+        // 2. agentId already stored on the thread from a previous selection
+        // 3. Auto-discovery: "Chat Assistant" > role "general" > first matching adapter
+        const explicitAgentId = params.agentId ? String(params.agentId) : (thread.agentId ?? null);
         const agents = await ctx.agents.list({ companyId });
-        const matching = agents.filter((a) => a.adapterType === thread.adapterType);
-        const agent = matching.find((a) => a.name === "Chat Assistant") ?? matching.find((a) => a.role === "general") ?? matching[0];
+        let agent: typeof agents[number] | undefined;
+        if (explicitAgentId) {
+          agent = agents.find((a) => a.id === explicitAgentId);
+        }
+        if (!agent) {
+          const matching = agents.filter((a) => a.adapterType === thread.adapterType);
+          agent = matching.find((a) => a.name === "Chat Assistant") ?? matching.find((a) => a.role === "general") ?? matching[0];
+        }
         if (!agent) {
           throw new Error(`No agent found with adapter type "${thread.adapterType}". Available: ${agents.map((a) => `${a.name}(${a.adapterType})`).join(", ") || "none"}`);
+        }
+        // Persist agent selection on the thread so subsequent messages reuse it
+        if (!thread.agentId) {
+          thread.agentId = agent.id;
+          thread.agentName = agent.name;
         }
         const session = await ctx.agents.sessions.create(agent.id, companyId, {
           reason: "Chat plugin: new conversation",

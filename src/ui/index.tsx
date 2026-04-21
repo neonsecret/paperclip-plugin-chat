@@ -8,6 +8,7 @@ import type {
   ChatMessage,
   ChatSegment,
   ChatAdapterInfo,
+  ChatAgentInfo,
   ChatStreamEvent,
 } from "../types.js";
 
@@ -821,6 +822,9 @@ function ChatInput({
   currentModels,
   selectedModel,
   setSelectedModel,
+  availableAgents,
+  selectedAgentId,
+  setSelectedAgentId,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -844,6 +848,9 @@ function ChatInput({
   currentModels: { id: string; label: string }[];
   selectedModel: string;
   setSelectedModel: (v: string) => void;
+  availableAgents: ChatAgentInfo[];
+  selectedAgentId: string;
+  setSelectedAgentId: (v: string) => void;
 }) {
   return (
     <div className="relative">
@@ -909,7 +916,7 @@ function ChatInput({
         )}
       </div>
 
-      {/* Adapter / model selector row */}
+      {/* Adapter / model / agent selector row */}
       <div className="flex items-center gap-1 mt-1.5 text-[11px] text-[rgba(255,255,255,0.3)] px-1">
         {availableAdapters.length > 0 && (
           <span className={selectedThread ? "cursor-default opacity-50" : "cursor-pointer opacity-70"}>
@@ -944,6 +951,32 @@ function ChatInput({
             </span>
           </>
         )}
+        {availableAgents.length > 0 && (
+          <>
+            <span className="opacity-40">/</span>
+            {selectedThread?.agentId ? (
+              <span
+                className="opacity-50 cursor-default"
+                title="Agent locked for this thread"
+              >
+                {selectedThread.agentName ?? availableAgents.find((a) => a.id === selectedThread.agentId)?.name ?? "Agent"}
+              </span>
+            ) : (
+              <span className="opacity-70">
+                <select
+                  value={selectedAgentId}
+                  onChange={(e) => setSelectedAgentId(e.target.value)}
+                  className="bg-transparent border-none text-[inherit] cursor-pointer p-0 font-[inherit]"
+                >
+                  <option value="">Auto</option>
+                  {availableAgents.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </select>
+              </span>
+            )}
+          </>
+        )}
         <span className="ml-auto opacity-40">Shift+Enter for new line</span>
       </div>
     </div>
@@ -965,6 +998,7 @@ export function ChatPage(_props: PluginPageProps) {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [selectedAdapter, setSelectedAdapter] = useState("claude_local");
   const [selectedModel, setSelectedModel] = useState("");
+  const [selectedAgentId, setSelectedAgentId] = useState("");
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -1005,6 +1039,7 @@ export function ChatPage(_props: PluginPageProps) {
     companyId,
   });
   const { data: adapters } = usePluginData<ChatAdapterInfo[]>("adapters", { companyId });
+  const { data: agents } = usePluginData<ChatAgentInfo[]>("agents", { companyId });
   const createThread = usePluginAction("createThread");
   const deleteThread = usePluginAction("deleteThread");
   const sendMessage = usePluginAction("sendMessage");
@@ -1020,6 +1055,7 @@ export function ChatPage(_props: PluginPageProps) {
 
   // Derived state
   const availableAdapters = adapters?.filter((a) => a.available) ?? [];
+  const availableAgents = agents ?? [];
   const currentAdapter = availableAdapters.find((a) => a.type === selectedAdapter) ?? availableAdapters[0];
   const currentModels = currentAdapter?.models ?? [];
   const selectedThread = threads?.find((t) => t.id === selectedThreadId) ?? null;
@@ -1157,6 +1193,7 @@ export function ChatPage(_props: PluginPageProps) {
         threadId,
         message: trimmed,
         companyId,
+        agentId: selectedAgentId || undefined,
       });
     } catch (err) {
       // Bug 6 fix: surface error to the UI instead of silently swallowing it
@@ -1167,7 +1204,7 @@ export function ChatPage(_props: PluginPageProps) {
       refreshMessages();
       refreshThreads();
     }
-  }, [input, sending, selectedThreadId, companyId, selectedAdapter, selectedModel, createThread, sendMessage, refreshMessages, refreshThreads]);
+  }, [input, sending, selectedThreadId, companyId, selectedAdapter, selectedModel, selectedAgentId, createThread, sendMessage, refreshMessages, refreshThreads]);
 
   const handleStop = useCallback(async () => {
     if (!selectedThreadId) return;
@@ -1198,7 +1235,7 @@ export function ChatPage(_props: PluginPageProps) {
     lastProcessedCount.current = 0;
     setTimeout(() => { refreshMessages(); refreshThreads(); }, 300);
     try {
-      await sendMessage({ threadId, message: cmd.prompt, companyId });
+      await sendMessage({ threadId, message: cmd.prompt, companyId, agentId: selectedAgentId || undefined });
     } catch (err) {
       console.error("Send failed:", err);
       setSendError(err instanceof Error ? err.message : "Failed to send message");
@@ -1207,7 +1244,7 @@ export function ChatPage(_props: PluginPageProps) {
       refreshMessages();
       refreshThreads();
     }
-  }, [selectedThreadId, companyId, selectedAdapter, selectedModel, createThread, sendMessage, refreshMessages, refreshThreads]);
+  }, [selectedThreadId, companyId, selectedAdapter, selectedModel, selectedAgentId, createThread, sendMessage, refreshMessages, refreshThreads]);
 
   const handleQuickAction = useCallback(async (prompt: string) => {
     setSendError(null);
@@ -1224,7 +1261,7 @@ export function ChatPage(_props: PluginPageProps) {
     lastProcessedCount.current = 0;
     setTimeout(() => { refreshMessages(); refreshThreads(); }, 300);
     try {
-      await sendMessage({ threadId: thread.id, message: prompt, companyId });
+      await sendMessage({ threadId: thread.id, message: prompt, companyId, agentId: selectedAgentId || undefined });
     } catch (err) {
       console.error("Send failed:", err);
       setSendError(err instanceof Error ? err.message : "Failed to send message");
@@ -1233,7 +1270,7 @@ export function ChatPage(_props: PluginPageProps) {
       refreshMessages();
       refreshThreads();
     }
-  }, [companyId, selectedAdapter, selectedModel, createThread, sendMessage, refreshMessages, refreshThreads]);
+  }, [companyId, selectedAdapter, selectedModel, selectedAgentId, createThread, sendMessage, refreshMessages, refreshThreads]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (showSlashMenu) {
@@ -1288,6 +1325,9 @@ export function ChatPage(_props: PluginPageProps) {
     currentModels,
     selectedModel,
     setSelectedModel,
+    availableAgents,
+    selectedAgentId,
+    setSelectedAgentId,
   };
 
   return (

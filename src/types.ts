@@ -13,6 +13,18 @@ export interface ChatThread {
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Explicit agent selected for this thread (locked after first message) */
+  agentId?: string;
+  /** Display name of the locked agent */
+  agentName?: string;
+}
+
+/** Minimal agent info returned to the UI for the agent selector */
+export interface ChatAgentInfo {
+  id: string;
+  name: string;
+  adapterType: string;
+  status: string;
 }
 
 /** A single chat message */
