@@ -967,6 +967,7 @@ export function ChatPage(_props: PluginPageProps) {
   const [selectedModel, setSelectedModel] = useState("");
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [streamingText, setStreamingText] = useState("");
@@ -1001,6 +1002,7 @@ export function ChatPage(_props: PluginPageProps) {
   });
   const { data: messages, refresh: refreshMessages } = usePluginData<ChatMessage[]>("messages", {
     threadId: selectedThreadId,
+    companyId,
   });
   const { data: adapters } = usePluginData<ChatAdapterInfo[]>("adapters", { companyId });
   const createThread = usePluginAction("createThread");
@@ -1059,7 +1061,11 @@ export function ChatPage(_props: PluginPageProps) {
         setStreamingText("");
         setStreamingThinking("");
         setStreamingError("");
-        lastProcessedCount.current = 0;
+        // Bug 5 fix: advance the cursor to current length, not reset to 0.
+        // Resetting to 0 would re-process all previous events on the next
+        // message (since usePluginStream returns a cumulative array for the
+        // same channel), causing old text to be appended to the new response.
+        lastProcessedCount.current = streamEvents.length;
       }
     }
   }, [streamEvents, refreshMessages, refreshThreads]);
@@ -1085,12 +1091,15 @@ export function ChatPage(_props: PluginPageProps) {
   }, [currentModels, selectedModel]);
 
   // Reset streaming on thread switch
+  // Bug 5 fix: use streamEvents.length so the next message starts from where
+  // the current stream left off, not from the beginning of the cumulative array.
   useEffect(() => {
     setStreamingText("");
     setStreamingThinking("");
     setStreamingError("");
-    lastProcessedCount.current = 0;
-  }, [selectedThreadId]);
+    setSendError(null);
+    lastProcessedCount.current = streamEvents.length;
+  }, [selectedThreadId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset slash menu
   useEffect(() => {
@@ -1133,6 +1142,7 @@ export function ChatPage(_props: PluginPageProps) {
     }
 
     setSending(true);
+    setSendError(null);
     setInput("");
     setStreamingText("");
     setStreamingThinking("");
@@ -1149,7 +1159,9 @@ export function ChatPage(_props: PluginPageProps) {
         companyId,
       });
     } catch (err) {
+      // Bug 6 fix: surface error to the UI instead of silently swallowing it
       console.error("Send failed:", err);
+      setSendError(err instanceof Error ? err.message : "Failed to send message");
     } finally {
       setSending(false);
       refreshMessages();
@@ -1168,6 +1180,7 @@ export function ChatPage(_props: PluginPageProps) {
 
   const selectCommand = useCallback(async (cmd: SlashCommand) => {
     setInput("");
+    setSendError(null);
     let threadId = selectedThreadId;
     if (!threadId) {
       const thread = await createThread({
@@ -1188,6 +1201,7 @@ export function ChatPage(_props: PluginPageProps) {
       await sendMessage({ threadId, message: cmd.prompt, companyId });
     } catch (err) {
       console.error("Send failed:", err);
+      setSendError(err instanceof Error ? err.message : "Failed to send message");
     } finally {
       setSending(false);
       refreshMessages();
@@ -1196,6 +1210,7 @@ export function ChatPage(_props: PluginPageProps) {
   }, [selectedThreadId, companyId, selectedAdapter, selectedModel, createThread, sendMessage, refreshMessages, refreshThreads]);
 
   const handleQuickAction = useCallback(async (prompt: string) => {
+    setSendError(null);
     const thread = await createThread({
       companyId,
       adapterType: selectedAdapter,
@@ -1212,6 +1227,7 @@ export function ChatPage(_props: PluginPageProps) {
       await sendMessage({ threadId: thread.id, message: prompt, companyId });
     } catch (err) {
       console.error("Send failed:", err);
+      setSendError(err instanceof Error ? err.message : "Failed to send message");
     } finally {
       setSending(false);
       refreshMessages();
@@ -1484,6 +1500,20 @@ export function ChatPage(_props: PluginPageProps) {
         {/* ── Bottom input (only when in a thread) ── */}
         {selectedThreadId && (
           <div className="chat-input-wrap">
+            {/* Bug 6 fix: surface sendError so the user sees agent-not-found and other failures */}
+            {sendError && (
+              <div className="mb-2 py-2 px-3 rounded-md bg-[rgba(239,68,68,0.08)] border border-[rgba(239,68,68,0.15)] text-[13px] text-[#ef4444] flex items-start gap-2">
+                <span className="shrink-0 mt-px text-xs font-bold">!</span>
+                <span className="whitespace-pre-wrap flex-1">{sendError}</span>
+                <button
+                  onClick={() => setSendError(null)}
+                  className="shrink-0 bg-transparent border-none cursor-pointer text-[#ef4444] opacity-60 text-sm leading-none p-0"
+                  title="Dismiss"
+                >
+                  &#x00d7;
+                </button>
+              </div>
+            )}
             <ChatInput
               {...inputProps}
               placeholder="Ask Paperclip anything..."

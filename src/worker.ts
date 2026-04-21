@@ -10,6 +10,13 @@ import type {
 const PLUGIN_NAME = "paperclip-chat";
 
 // ---------------------------------------------------------------------------
+// Abort registry — module-level map from threadId to AbortController
+// Used by stopThread to cancel an in-flight sendMessage
+// ---------------------------------------------------------------------------
+
+const threadAbortControllers = new Map<string, AbortController>();
+
+// ---------------------------------------------------------------------------
 // Claude stream-json parser
 // ---------------------------------------------------------------------------
 
@@ -89,17 +96,11 @@ function createStreamJsonParser(emit: (event: ChatStreamEvent) => void) {
               emit({ type: "session_init", sessionId: obj.session_id });
             }
           } else if (type === "result") {
-            const usage = obj.usage as Record<string, unknown> | undefined;
-            emit({
-              type: "result",
-              usage: usage ? {
-                input_tokens: (usage.input_tokens as number) ?? 0,
-                output_tokens: (usage.output_tokens as number) ?? 0,
-              } : undefined,
-              costUsd: typeof obj.total_cost_usd === "number" ? obj.total_cost_usd
-                : typeof obj.cost_usd === "number" ? obj.cost_usd
-                : undefined,
-            });
+            // Bug 4 fix: do NOT emit a "result" ChatStreamEvent from the stream
+            // parser path — the onEvent "done" handler is the single canonical
+            // source of the terminal event.  Just resolve via the normal flow;
+            // the parser already called emit() for all content blocks above.
+            // (previously this double-emitted "result" to the SSE channel)
           }
 
           // ── Anthropic API streaming format (fallback) ──────────────
@@ -147,19 +148,19 @@ function messagesKey(threadId: string) {
 // State helpers
 // ---------------------------------------------------------------------------
 
-async function getThread(ctx: PluginContext, threadId: string): Promise<ChatThread | null> {
+async function getThread(ctx: PluginContext, threadId: string, companyId: string): Promise<ChatThread | null> {
   const raw = await ctx.state.get({
-    scopeKind: "instance",
-    scopeId: "global",
+    scopeKind: "company",
+    scopeId: companyId,
     stateKey: threadKey(threadId),
   });
   return (raw as ChatThread) ?? null;
 }
 
-async function saveThread(ctx: PluginContext, thread: ChatThread): Promise<void> {
+async function saveThread(ctx: PluginContext, thread: ChatThread, companyId: string): Promise<void> {
   await ctx.state.set({
-    scopeKind: "instance",
-    scopeId: "global",
+    scopeKind: "company",
+    scopeId: companyId,
     stateKey: threadKey(thread.id),
   }, thread as unknown);
 }
@@ -181,19 +182,19 @@ async function saveThreadList(ctx: PluginContext, companyId: string, ids: string
   }, ids as unknown);
 }
 
-async function getMessages(ctx: PluginContext, threadId: string): Promise<ChatMessage[]> {
+async function getMessages(ctx: PluginContext, threadId: string, companyId: string): Promise<ChatMessage[]> {
   const raw = await ctx.state.get({
-    scopeKind: "instance",
-    scopeId: "global",
+    scopeKind: "company",
+    scopeId: companyId,
     stateKey: messagesKey(threadId),
   });
   return (raw as ChatMessage[]) ?? [];
 }
 
-async function saveMessages(ctx: PluginContext, threadId: string, msgs: ChatMessage[]): Promise<void> {
+async function saveMessages(ctx: PluginContext, threadId: string, companyId: string, msgs: ChatMessage[]): Promise<void> {
   await ctx.state.set({
-    scopeKind: "instance",
-    scopeId: "global",
+    scopeKind: "company",
+    scopeId: companyId,
     stateKey: messagesKey(threadId),
   }, msgs as unknown);
 }
@@ -232,7 +233,7 @@ const plugin = definePlugin({
       const ids = await getThreadList(ctx, companyId);
       const threads: ChatThread[] = [];
       for (const id of ids) {
-        const thread = await getThread(ctx, id);
+        const thread = await getThread(ctx, id, companyId);
         if (thread) threads.push(thread);
       }
       // Sort by updatedAt descending
@@ -243,8 +244,9 @@ const plugin = definePlugin({
     // ── Data: get messages for a thread ─────────────────────────────
     ctx.data.register("messages", async (params: Record<string, unknown>) => {
       const threadId = params.threadId as string;
-      if (!threadId) return [];
-      return getMessages(ctx, threadId);
+      const companyId = params.companyId as string;
+      if (!threadId || !companyId) return [];
+      return getMessages(ctx, threadId, companyId);
     });
 
     // ── Data: list available adapters ───────────────────────────────
@@ -307,7 +309,7 @@ const plugin = definePlugin({
         updatedAt: new Date().toISOString(),
       };
 
-      await saveThread(ctx, thread);
+      await saveThread(ctx, thread, companyId);
       const ids = await getThreadList(ctx, companyId);
       ids.unshift(thread.id);
       await saveThreadList(ctx, companyId, ids);
@@ -326,15 +328,15 @@ const plugin = definePlugin({
       const filtered = ids.filter((id) => id !== threadId);
       await saveThreadList(ctx, companyId, filtered);
 
-      // Delete thread and messages state
+      // Delete thread and messages state (Bug 2 fix: use company scope)
       await ctx.state.delete({
-        scopeKind: "instance",
-        scopeId: "global",
+        scopeKind: "company",
+        scopeId: companyId,
         stateKey: threadKey(threadId),
       });
       await ctx.state.delete({
-        scopeKind: "instance",
-        scopeId: "global",
+        scopeKind: "company",
+        scopeId: companyId,
         stateKey: messagesKey(threadId),
       });
 
@@ -345,14 +347,15 @@ const plugin = definePlugin({
     ctx.actions.register("updateThreadTitle", async (params: Record<string, unknown>) => {
       const threadId = params.threadId as string;
       const title = params.title as string;
-      if (!threadId || !title) throw new Error("threadId and title required");
+      const companyId = params.companyId as string;
+      if (!threadId || !title || !companyId) throw new Error("threadId, title, and companyId required");
 
-      const thread = await getThread(ctx, threadId);
+      const thread = await getThread(ctx, threadId, companyId);
       if (!thread) throw new Error("Thread not found");
 
       thread.title = title;
       thread.updatedAt = new Date().toISOString();
-      await saveThread(ctx, thread);
+      await saveThread(ctx, thread, companyId);
       return thread;
     });
 
@@ -365,11 +368,11 @@ const plugin = definePlugin({
         throw new Error("threadId, message, and companyId required");
       }
 
-      const thread = await getThread(ctx, threadId);
+      const thread = await getThread(ctx, threadId, companyId);
       if (!thread) throw new Error("Thread not found");
 
       // Save user message
-      const msgs = await getMessages(ctx, threadId);
+      const msgs = await getMessages(ctx, threadId, companyId);
       const userMsg: ChatMessage = {
         id: generateId(),
         threadId,
@@ -379,7 +382,7 @@ const plugin = definePlugin({
         createdAt: new Date().toISOString(),
       };
       msgs.push(userMsg);
-      await saveMessages(ctx, threadId, msgs);
+      await saveMessages(ctx, threadId, companyId, msgs);
 
       // Mark thread as running
       thread.status = "running";
@@ -394,7 +397,7 @@ const plugin = definePlugin({
         thread.title = titleLine;
         // TODO: emit title_updated via stream
       }
-      await saveThread(ctx, thread);
+      await saveThread(ctx, thread, companyId);
 
       // Track whether this is the first message in the thread (new session)
       const isNewSession = !thread.sessionId;
@@ -415,7 +418,7 @@ const plugin = definePlugin({
         });
         sessionId = session.sessionId;
         thread.sessionId = sessionId;
-        await saveThread(ctx, thread);
+        await saveThread(ctx, thread, companyId);
       }
 
       // Build agent context for the first message so the copilot knows about
@@ -449,106 +452,145 @@ const plugin = definePlugin({
       const RUN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
       let runId: string | undefined;
 
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          reject(new Error("Chat response timed out"));
-        }, RUN_TIMEOUT_MS);
+      // Bug 3 fix: register an AbortController so stopThread can unblock us
+      const abortController = new AbortController();
+      const abortSignal = abortController.signal;
+      threadAbortControllers.set(threadId, abortController);
 
-        // Helper to process parsed stream events
-        const handleParsedEvent = (chatEvent: ChatStreamEvent) => {
-          // Accumulate for persistence
-          if (chatEvent.type === "text" && chatEvent.text) {
-            fullResponse += chatEvent.text;
-            const last = segments.segments[segments.segments.length - 1];
-            if (last && last.kind === "text") {
-              last.content += chatEvent.text;
-            } else {
-              segments.segments.push({ kind: "text", content: chatEvent.text });
-            }
-          }
-          if (chatEvent.type === "thinking" && chatEvent.text) {
-            const last = segments.segments[segments.segments.length - 1];
-            if (last && last.kind === "thinking") {
-              last.content += chatEvent.text;
-            } else {
-              segments.segments.push({ kind: "thinking", content: chatEvent.text });
-            }
-          }
-          if (chatEvent.type === "tool_use") {
-            segments.segments.push({
-              kind: "tool",
-              name: chatEvent.name ?? "tool",
-              input: chatEvent.input,
-            });
-          }
-          if (chatEvent.type === "tool_result") {
-            for (let i = segments.segments.length - 1; i >= 0; i--) {
-              const seg = segments.segments[i];
-              if (seg && seg.kind === "tool" && seg.result === undefined) {
-                seg.result = chatEvent.content ?? "";
-                seg.isError = chatEvent.isError ?? false;
-                break;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          // Bug 3 fix: if already aborted before we even start, reject immediately
+          if (abortSignal.aborted) { reject(new Error("stopped")); return; }
+          abortSignal.addEventListener("abort", () => reject(new Error("stopped")), { once: true });
+
+          const timer = setTimeout(() => {
+            reject(new Error("Chat response timed out"));
+          }, RUN_TIMEOUT_MS);
+
+          // Helper to process parsed stream events
+          const handleParsedEvent = (chatEvent: ChatStreamEvent) => {
+            // Check abort at each event (Bug 3 fix)
+            if (abortSignal.aborted) return;
+
+            // Accumulate for persistence
+            if (chatEvent.type === "text" && chatEvent.text) {
+              fullResponse += chatEvent.text;
+              const last = segments.segments[segments.segments.length - 1];
+              if (last && last.kind === "text") {
+                last.content += chatEvent.text;
+              } else {
+                segments.segments.push({ kind: "text", content: chatEvent.text });
               }
             }
-          }
-          if (chatEvent.type === "session_init" && chatEvent.sessionId) {
-            thread.sessionId = chatEvent.sessionId;
-          }
-
-          // Terminal events: run completed or errored — resolve the wait
-          if (chatEvent.type === "result" || chatEvent.type === "error") {
-            clearTimeout(timer);
-            resolve();
-          }
-
-          // Push event to UI via SSE stream in real-time
-          ctx.streams.emit(streamChannel, chatEvent);
-        };
-
-        // Parse raw stdout chunks (Claude stream-json format) into events
-        const parser = createStreamJsonParser(handleParsedEvent);
-
-        ctx.agents.sessions.sendMessage(sessionId, companyId, {
-          prompt: enrichedMessage,
-          reason: "Chat plugin: user message",
-          onEvent: (event: AgentSessionEvent) => {
-            // The host forwards raw stdout/stderr chunks as "chunk" events.
-            // For stdout chunks, parse the Claude stream-json format.
-            if (event.eventType === "chunk") {
-              const stream = event.stream ?? (event.payload?.stream as string | undefined);
-              if (stream === "stdout" && event.message) {
-                parser.push(event.message);
+            if (chatEvent.type === "thinking" && chatEvent.text) {
+              const last = segments.segments[segments.segments.length - 1];
+              if (last && last.kind === "thinking") {
+                last.content += chatEvent.text;
+              } else {
+                segments.segments.push({ kind: "thinking", content: chatEvent.text });
               }
-              // Ignore stderr chunks
-              return;
             }
-
-            // Terminal events from the host (run status changes)
-            if (event.eventType === "done") {
-              parser.flush();
-              handleParsedEvent({
-                type: "result",
-                usage: event.payload?.usage as ChatStreamEvent["usage"],
-                costUsd: event.payload?.costUsd as number | undefined,
+            if (chatEvent.type === "tool_use") {
+              segments.segments.push({
+                kind: "tool",
+                name: chatEvent.name ?? "tool",
+                input: chatEvent.input,
               });
+            }
+            if (chatEvent.type === "tool_result") {
+              for (let i = segments.segments.length - 1; i >= 0; i--) {
+                const seg = segments.segments[i];
+                if (seg && seg.kind === "tool" && seg.result === undefined) {
+                  seg.result = chatEvent.content ?? "";
+                  seg.isError = chatEvent.isError ?? false;
+                  break;
+                }
+              }
+            }
+            if (chatEvent.type === "session_init" && chatEvent.sessionId) {
+              // Bug 3 fix: only save sessionId back if not aborted (stopThread
+              // cleared it; we must not resurrect the old value)
+              if (!abortSignal.aborted) {
+                thread.sessionId = chatEvent.sessionId;
+              }
+            }
+
+            // Terminal events: run completed or errored — resolve the wait
+            // Bug 4 fix: only resolve(), do NOT re-emit to SSE here; the
+            // onEvent "done" handler is the single canonical terminal emitter.
+            if (chatEvent.type === "result" || chatEvent.type === "error") {
+              clearTimeout(timer);
+              resolve();
+              // Still forward non-result events to the UI
               return;
             }
-            if (event.eventType === "error") {
-              parser.flush();
-              handleParsedEvent({ type: "error", text: event.message ?? "Unknown error" });
-              return;
-            }
-            if (event.eventType === "status" && event.payload?.sessionId) {
-              handleParsedEvent({ type: "session_init", sessionId: event.payload.sessionId as string });
-            }
-          },
-        }).then((result) => {
-          runId = result.runId;
-        }).catch((err) => {
-          clearTimeout(timer);
-          reject(err);
+
+            // Push event to UI via SSE stream in real-time
+            ctx.streams.emit(streamChannel, chatEvent);
+          };
+
+          // Parse raw stdout chunks (Claude stream-json format) into events
+          const parser = createStreamJsonParser(handleParsedEvent);
+
+          ctx.agents.sessions.sendMessage(sessionId!, companyId, {
+            prompt: enrichedMessage,
+            reason: "Chat plugin: user message",
+            onEvent: (event: AgentSessionEvent) => {
+              // The host forwards raw stdout/stderr chunks as "chunk" events.
+              // For stdout chunks, parse the Claude stream-json format.
+              if (event.eventType === "chunk") {
+                const stream = event.stream ?? (event.payload?.stream as string | undefined);
+                if (stream === "stdout" && event.message) {
+                  parser.push(event.message);
+                }
+                // Ignore stderr chunks
+                return;
+              }
+
+              // Terminal events from the host (run status changes)
+              // Bug 4 fix: this is the ONE place that emits "result" to the SSE channel
+              if (event.eventType === "done") {
+                parser.flush();
+                const resultEvent: ChatStreamEvent = {
+                  type: "result",
+                  usage: event.payload?.usage as ChatStreamEvent["usage"],
+                  costUsd: event.payload?.costUsd as number | undefined,
+                };
+                clearTimeout(timer);
+                resolve();
+                if (!abortSignal.aborted) {
+                  ctx.streams.emit(streamChannel, resultEvent);
+                }
+                return;
+              }
+              if (event.eventType === "error") {
+                parser.flush();
+                handleParsedEvent({ type: "error", text: event.message ?? "Unknown error" });
+                return;
+              }
+              if (event.eventType === "status" && event.payload?.sessionId) {
+                handleParsedEvent({ type: "session_init", sessionId: event.payload.sessionId as string });
+              }
+            },
+          }).then((result) => {
+            runId = result.runId;
+          }).catch((err) => {
+            clearTimeout(timer);
+            reject(err);
+          });
         });
-      });
+      } finally {
+        // Bug 1 fix: always clean up abort controller and reset thread status
+        threadAbortControllers.delete(threadId);
+
+        // Reset thread to idle regardless of success/failure/abort
+        const latestThread = await getThread(ctx, threadId, companyId);
+        if (latestThread && latestThread.status === "running") {
+          latestThread.status = "idle";
+          latestThread.updatedAt = new Date().toISOString();
+          await saveThread(ctx, latestThread, companyId);
+        }
+      }
 
       // Stream complete — save assistant message
       if (fullResponse || segments.segments.length > 0) {
@@ -560,15 +602,10 @@ const plugin = definePlugin({
           metadata: segments,
           createdAt: new Date().toISOString(),
         };
-        const updatedMsgs = await getMessages(ctx, threadId);
+        const updatedMsgs = await getMessages(ctx, threadId, companyId);
         updatedMsgs.push(assistantMsg);
-        await saveMessages(ctx, threadId, updatedMsgs);
+        await saveMessages(ctx, threadId, companyId, updatedMsgs);
       }
-
-      // Mark thread idle
-      thread.status = "idle";
-      thread.updatedAt = new Date().toISOString();
-      await saveThread(ctx, thread);
 
       // Signal stream completion and close the channel
       ctx.streams.emit(streamChannel, { type: "done" });
@@ -585,14 +622,20 @@ const plugin = definePlugin({
       const companyId = params.companyId as string;
       if (!threadId || !companyId) throw new Error("threadId and companyId required");
 
-      const thread = await getThread(ctx, threadId);
+      const thread = await getThread(ctx, threadId, companyId);
       if (!thread || !thread.sessionId) return { ok: true, stopped: false };
 
       await ctx.agents.sessions.close(thread.sessionId, companyId);
       thread.status = "idle";
       thread.sessionId = null; // Force new session on next message
       thread.updatedAt = new Date().toISOString();
-      await saveThread(ctx, thread);
+      await saveThread(ctx, thread, companyId);
+
+      // Bug 3 fix: unblock any in-flight sendMessage promise for this thread
+      const abortController = threadAbortControllers.get(threadId);
+      if (abortController) {
+        abortController.abort();
+      }
 
       return { ok: true, stopped: true };
     });
