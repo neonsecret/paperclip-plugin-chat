@@ -8,8 +8,7 @@
   },
   "paperclipPlugin": {
     "manifest": "./dist/manifest.js",
-    "worker": "./dist/worker.js",
-    "ui": "./dist/ui/"
+    "worker": "./dist/worker.js"
   },
   "scripts": {
     "build": "tsc && node ./scripts/build-ui.mjs",
