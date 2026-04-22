@@ -478,10 +478,10 @@ const plugin = definePlugin({
         ctx.streams.emit(streamChannel, { type: "title_updated", title: thread.title });
       }
 
-      // Send message and stream events.
-      // ctx.agents.sessions.sendMessage returns immediately once the run is
-      // queued — the onEvent callback fires asynchronously via JSON-RPC
-      // notifications.  We must wait for the terminal event before saving.
+      // Run the agent session in the background so the action returns immediately.
+      // The performAction RPC has a 30s server timeout — waiting for the full
+      // agent response (minutes) inside the action handler causes a timeout.
+      // Instead we fire-and-forget the run; the UI reads progress via SSE stream.
       const RUN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
       let runId: string | undefined;
 
@@ -490,7 +490,8 @@ const plugin = definePlugin({
       const abortSignal = abortController.signal;
       threadAbortControllers.set(threadId, abortController);
 
-      try {
+      // Fire-and-forget: run agent session in background, return immediately
+      void (async () => { try {
         await new Promise<void>((resolve, reject) => {
           // Bug 3 fix: if already aborted before we even start, reject immediately
           if (abortSignal.aborted) { reject(new Error("stopped")); return; }
@@ -644,9 +645,16 @@ const plugin = definePlugin({
       ctx.streams.emit(streamChannel, { type: "done" });
       ctx.streams.close(streamChannel);
 
-      ctx.logger.info(`Chat message completed`, { threadId, runId });
+        ctx.logger.info(`Chat message completed`, { threadId, runId });
+      } catch (err) {
+        ctx.logger.error("Chat sendMessage error", { err: String(err), threadId });
+        ctx.streams.emit(streamChannel, { type: "error", text: "Internal error during chat" });
+        ctx.streams.close(streamChannel);
+      }
+      })(); // end fire-and-forget background task
 
-      return { ok: true, runId };
+      // Return immediately — agent run happens in background, UI reads SSE stream
+      return { ok: true };
     });
 
     // ── Action: stop a running response ─────────────────────────────
