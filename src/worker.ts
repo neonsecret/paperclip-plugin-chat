@@ -450,20 +450,18 @@ const plugin = definePlugin({
         await saveThread(ctx, thread, companyId);
       }
 
-      // Build agent context for the first message so the copilot knows about
-      // available agents and can reference them for handoff.
-      let enrichedMessage = message;
-      if (isNewSession) {
-        const allAgents = await ctx.agents.list({ companyId });
-        const agentContext = allAgents.length > 0
-          ? `[Available Agents]\n${allAgents.map(a => `- @${a.name} (Role: ${a.role ?? "general"}, Title: ${a.title ?? "N/A"}, Status: ${a.status ?? "unknown"})`).join("\n")}\n\n`
-          : "";
-        // Tell the agent it's in a direct chat so it doesn't get confused by
-        // its Step 0 inbox-check instructions. It can still check inbox after
-        // responding — this just sets context about why it was woken.
-        const chatFraming = `[Chat Session]\nYou were woken via the Paperclip Chat interface. A user is speaking to you directly. Respond to their message first — then you may handle pending inbox items if relevant.\n\n`;
-        enrichedMessage = chatFraming + agentContext + message;
-      }
+      // Prepend chat framing on EVERY message so the agent always knows it's in
+      // a direct chat — not just on the first message. Without this, agents with
+      // a persisted session see no framing on message 2+ and fall back to their
+      // Step 0 heartbeat protocol ("inbox empty, exiting").
+      const chatFraming = `[Chat Session]\nYou were woken via the Paperclip Chat interface. A human is speaking to you directly. Respond to their message first — then you may handle pending inbox items if relevant.\n\n`;
+      // Agent context (available agents list) only on new sessions to avoid bloat.
+      const agentContext = isNewSession
+        ? await ctx.agents.list({ companyId }).then(agents => agents.length > 0
+            ? `[Available Agents]\n${agents.map(a => `- @${a.name} (Role: ${a.role ?? "general"}, Title: ${a.title ?? "N/A"}, Status: ${a.status ?? "unknown"})`).join("\n")}\n\n`
+            : "")
+        : "";
+      const enrichedMessage = chatFraming + agentContext + message;
 
       // Open SSE stream channel for this thread so the UI gets real-time events
       const streamChannel = `chat:${threadId}`;
@@ -613,43 +611,39 @@ const plugin = definePlugin({
             reject(err);
           });
         });
-      } finally {
-        // Bug 1 fix: always clean up abort controller and reset thread status
-        threadAbortControllers.delete(threadId);
 
-        // Reset thread to idle regardless of success/failure/abort
+        // Stream complete — save assistant message
+        if (fullResponse || segments.segments.length > 0) {
+          const assistantMsg: ChatMessage = {
+            id: generateId(),
+            threadId,
+            role: "assistant",
+            content: fullResponse,
+            metadata: segments,
+            createdAt: new Date().toISOString(),
+          };
+          const updatedMsgs = await getMessages(ctx, threadId, companyId);
+          updatedMsgs.push(assistantMsg);
+          await saveMessages(ctx, threadId, companyId, updatedMsgs);
+        }
+
+        // Signal stream completion and close the channel
+        ctx.streams.emit(streamChannel, { type: "done" });
+        ctx.streams.close(streamChannel);
+        ctx.logger.info(`Chat message completed`, { threadId, runId });
+      } catch (err) {
+        ctx.logger.error("Chat sendMessage error", { err: String(err), threadId });
+        ctx.streams.emit(streamChannel, { type: "error", text: "Internal error during chat" });
+        ctx.streams.close(streamChannel);
+      } finally {
+        // Always clean up abort controller and reset thread status
+        threadAbortControllers.delete(threadId);
         const latestThread = await getThread(ctx, threadId, companyId);
         if (latestThread && latestThread.status === "running") {
           latestThread.status = "idle";
           latestThread.updatedAt = new Date().toISOString();
           await saveThread(ctx, latestThread, companyId);
         }
-      }
-
-      // Stream complete — save assistant message
-      if (fullResponse || segments.segments.length > 0) {
-        const assistantMsg: ChatMessage = {
-          id: generateId(),
-          threadId,
-          role: "assistant",
-          content: fullResponse,
-          metadata: segments,
-          createdAt: new Date().toISOString(),
-        };
-        const updatedMsgs = await getMessages(ctx, threadId, companyId);
-        updatedMsgs.push(assistantMsg);
-        await saveMessages(ctx, threadId, companyId, updatedMsgs);
-      }
-
-      // Signal stream completion and close the channel
-      ctx.streams.emit(streamChannel, { type: "done" });
-      ctx.streams.close(streamChannel);
-
-        ctx.logger.info(`Chat message completed`, { threadId, runId });
-      } catch (err) {
-        ctx.logger.error("Chat sendMessage error", { err: String(err), threadId });
-        ctx.streams.emit(streamChannel, { type: "error", text: "Internal error during chat" });
-        ctx.streams.close(streamChannel);
       }
       })(); // end fire-and-forget background task
 
